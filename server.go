@@ -1,101 +1,123 @@
-package main  
- 
+package main
+
 import (
-	"fmt" 
-	"time"
-	"math/rand"
+	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"time"
+
 	zmq "github.com/pebbe/zmq4"
 )
 
-const incremental = true
+var incremental = true
+var ellipsesMax = 10000
+var pubStarted = false
 
-func main() {  
-	fmt.Println("Hello World")  
+// Main Func; This runs first.
+func main() {
 
+	// Start the server-command listener.
+	go listenAndReply() // commandHandling.go
+
+	// Gather and organize CLI arguments.
+	handleArguments()
+
+	// ZMQ4 initialization.
 	zctx, _ := zmq.NewContext()
 	s, _ := zctx.NewSocket(zmq.REP)
 	s.Bind("tcp://*:5555")
 
-	pubStarted := false
-
+	// Main Loop
 	for {
-			// Wait for next request from client
-			msg, _ := s.Recv(0)
-			log.Printf("Received %s\n", msg)
+		// Wait for and display next request from client
+		msg, _ := s.Recv(0)
+		log.Printf("Received %s\n", msg)
 
-			if msg == "start" || msg == "1" {
-				s.Send("OK",0)
-				if (!pubStarted){
-					pubStarted = true
-					startPub(&pubStarted)
-				}
+		// Convert recieved message to int.
+		// If it is an integer (aka Atoi returns > 0), try to start publishing that many times.
+		msgInt, _ := strconv.Atoi(msg)
+		if msgInt > 0 {
+			s.Send("OK-NUMBER", 0)
+			tryStartPub(msgInt, s)
+		}
 
-			} else if msg == "inf" || msg == "runInf" {
-				s.Send("OK-INF", 0)
-				if (!pubStarted){
-					pubStarted = true
-					go infinitePub(&pubStarted)
-				}
-			} else {
-				s.Send("NO",0)
-			}
+		// Non-Int message handling.
+		switch msg {
+		case "start":
+			s.Send("OK", 0)
+			tryStartPub(100000, s)
+		case "inf":
+			s.Send("OK-INF", 0)
+			tryStartPub(1000000, s) // Eh it's not infinite but it's close enough
+		default:
+			s.Send("NO", 0)
+		}
 	}
 }
 
-func genRandomPairing() (string, string){
-	x := rand.Int31()
-	y := rand.Int31()
-
-	hexX := fmt.Sprintf("%x", x)
-	hexY := fmt.Sprintf("%x", y)
-
-	return hexX, hexY
-}
-
-func getHexPair(x int, y int) (string, string){
-	hexX := fmt.Sprintf("%x", x)
-	hexY := fmt.Sprintf("%x", y)
-
-	return hexX, hexY
-}
-
-func startPub(ptr *bool){
-	time.Sleep(time.Second * 1)
-	pubContext, _ := zmq.NewContext()
-	pub, _ := pubContext.NewSocket(zmq.PUB)
-	pub.Bind("tcp://*:5556")
-	for i := 0; i < 100; i++{
-		log.Println("SENDING")
-		pub.Send("DATA", 0)
+// See if we are currently publishing data!
+// If so, hold off on starting anymore data publishing.
+// Otherwise, publish away!
+func tryStartPub(amount int, s *zmq.Socket) {
+	if !pubStarted {
+		pubStarted = true
+		go startPub(amount)
+	} else {
+		s.Send("SOCKET OCCUPIED", 0)
 	}
-	log.Println("\n\nDone Sending!")
-	*ptr = false;
-	// pubStarted = false;
-	defer pub.Close()
 }
 
+// Handle CLI arguments.
+func handleArguments() {
+	// Get all arguments in CLI call
+	argsWithoutProg := os.Args[1:]
+	fmt.Println(argsWithoutProg)
+	incremental = sliceContains(argsWithoutProg, "incremental")
+}
 
-func infinitePub(ptr *bool){
+// Start publishing data!
+func startPub(amount int) {
+	// Wait one second
+	// TODO: Hacky fix
 	time.Sleep(time.Second * 1)
+
+	// ZMQ4 Socket initialization.
 	pubContext, _ := zmq.NewContext()
 	pub, _ := pubContext.NewSocket(zmq.PUB)
 	pub.Bind("tcp://*:5556")
-	count := 0
-	for {
-		log.Println("SENDING")
+
+	// This value is only used for an asthetic ellipse filling in feature.
+	// Completely non-essential, but I think it looks nice.
+	ellipses := 0
+
+	log.Println("Sending ", amount, "!")
+	fmt.Println()
+	for i := 0; i < amount; i++ {
+		// Ellipses are non-essential but pretty.
+		ellipses += 1
+		if ellipses >= ellipsesMax {
+			ellipses = 0
+			fmt.Print(".")
+		}
+
+		// Initialize x and y.
 		x, y := "", ""
-		if (incremental){
-			x, y = getHexPair(count, count)
-			count += 1
-		} else{
+		// If argument for incremental is passed, generate a Hex Pair from current iteration.
+		if incremental {
+			x, y = getHexPair(i, i)
+		} else {
+			// Otherwise, generate a random pairing.
 			x, y = genRandomPairing()
 		}
+		// Put the x and y into a single string.
 		pairString := x + ", " + y
+		// Send the single string on up!
 		pub.Send(pairString, 0)
 	}
-	// log.Println("\n\nDone Sending!")
-	// *ptr = false;
-	// // pubStarted = false;
-	// defer pub.Close()
+	fmt.Println()
+	log.Println("\nDone Sending!")
+
+	// Close the socket.
+	defer pub.Close()
 }
