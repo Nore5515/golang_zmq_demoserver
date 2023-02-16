@@ -64,6 +64,7 @@ func tryStartPub(amount int, s *zmq.Socket) {
 		pubStarted = true
 		go startPub(amount)
 	} else {
+		fmt.Println("OCCUPIED")
 		s.Send("SOCKET OCCUPIED", 0)
 	}
 }
@@ -117,6 +118,7 @@ func startPub(amount int) {
 	}
 	fmt.Println()
 	log.Println("\nDone Sending!")
+	pubStarted = false
 
 	// Close the socket.
 	defer pub.Close()
