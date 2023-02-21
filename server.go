@@ -116,8 +116,12 @@ func startPub(amount int) {
 		// Send the single string on up!
 		pub.Send(pairString, 0)
 	}
+
+	time.Sleep(time.Second * 1)
+	pub.Send("END", 0)
 	fmt.Println()
 	log.Println("\nDone Sending!")
+	pub.Send("DONE", 0)
 	pubStarted = false
 
 	// Close the socket.
